@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Starter Project</string>
+    <string name="routing_url">http://gis.tamu.edu/arcgis/rest/services/Routing/20190419/NAServer/Route</string>
+</resources>

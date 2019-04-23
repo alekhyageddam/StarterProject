@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- *** ADD *** -->
+    <string name="redirect_url">my-devlab-app://auth</string>
+    <string name="client_id">6v82vuVdcgQWtm9y</string>
+    <string name="traffic_service">https://traffic.arcgis.com/arcgis/rest/services/World/Traffic/MapServer</string>
+
+</resources>
