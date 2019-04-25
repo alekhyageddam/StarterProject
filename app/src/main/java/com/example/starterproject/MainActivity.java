@@ -2,6 +2,8 @@ package com.example.starterproject;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -13,11 +15,15 @@ import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.Handler;
+import android.os.Message;
+import android.os.ParcelUuid;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -58,21 +64,26 @@ import com.esri.arcgisruntime.tasks.networkanalysis.TravelMode;
 import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
-public class MainActivity extends AppCompatActivity implements SensorEventListener {
+public class MainActivity extends AppCompatActivity implements SensorEventListener,Handler.Callback {
 
+    //map servies
     private MapView mMapView;
     private GraphicsOverlay mGraphicsOverlay;
     private GraphicsOverlay _personUpdate = new GraphicsOverlay();
     private Point mStart;
     private Point mEnd;
+    //location services
     private LocationManager _locationManager;
     private Location _nextLoc;
+    //route services
     private ArrayList<DirectionManeuver> _directions = new ArrayList<>();
     private boolean nextDirec = false;
     private DirectionManeuverType dmt = DirectionManeuverType.DEPART;
     private boolean newRoute = false;
+    //orientation services
     private static SensorManager _sensorManager;
     private Sensor _accelerometer;
     private Sensor _magnetometer;
@@ -83,6 +94,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private boolean _lastAccelerometerSet = false;
     private boolean _lastMagnetometerSet = false;
     private double heading = 0.0;
+    //bluetooth commands
+    private static final String TAG = "BluetoothChat";
+    private Button send_data;
+    private TextView DataView;
+
+    private Handler mhandler = null;
+    private BluetoothChatService mChatService = null;
+    private BluetoothAdapter mBluetoothAdapter = null;
+    private String mConnectedDeviceName = "FireFly-9479";
 
 
     @SuppressLint("MissingPermission")
@@ -95,7 +115,21 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         _sensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
         _accelerometer = _sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         _magnetometer = _sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+        //set bluetooth up
+        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
 
+        mhandler = new Handler( this);
+
+        mChatService = new BluetoothChatService(this,mhandler);
+
+        for(BluetoothDevice bldevice : pairedDevices){
+            if(bldevice.getName().contains(mConnectedDeviceName)){
+                ParcelUuid[] tmp = bldevice.getUuids();
+                String value = tmp[0].toString();
+                mChatService.connect(bldevice,true,value);
+            }
+        }
 
         // *** ADD ***
         mMapView = findViewById(R.id.mapView);
@@ -168,7 +202,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         _lastMagnetometerSet = false;
         //_sensorManager.registerListener(this, _accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
        // _sensorManager.registerListener(this, _magnetometer, SensorManager.SENSOR_DELAY_NORMAL);
-
+        if (mChatService != null) {
+            // Only if the state is STATE_NONE, do we know that we haven't started already
+            if (mChatService.getState() == BluetoothChatService.STATE_NONE) {
+                // Start the Bluetooth chat services
+                mChatService.start();
+            }
+        }
 
 
     }
@@ -178,9 +218,33 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (mMapView != null) {
             mMapView.dispose();
         }
+        if (mChatService != null) {
+            mChatService.stop();
+        }
         super.onDestroy();
     }
-
+    @Override
+    public boolean handleMessage(Message message) {
+        String[] MessageStatus = new String[]{"STATE_NONE","STATE_LISTEN","STATE_CONNECTING","STATE_CONNECTED"};
+        switch (message.what) {
+            case Constants.MESSAGE_STATE_CHANGE:
+                if(MessageStatus[message.arg1] == "STATE_LISTEN")
+                {
+                    mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+                    Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
+                    for(BluetoothDevice bldevice : pairedDevices){
+                        if(bldevice.getName().contains(mConnectedDeviceName)){
+                            ParcelUuid[] tmp = bldevice.getUuids();
+                            String value = tmp[0].toString();
+                            mChatService.connect(bldevice,true,value);
+                        }
+                    }
+                }
+                DataView.setText(MessageStatus[message.arg1]);
+                break;
+        }
+        return true;
+    }
 
     private void createGraphicsOverlay() {
         mGraphicsOverlay = new GraphicsOverlay();
@@ -243,6 +307,27 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
     }
 
+    //decides either to turn left or turn right or go straight
+    private String turnDirection(double heading, double bearing){
+        double bearing_left = (bearing - 30);
+        double bearing_right = (bearing + 30);
+        if (heading >=bearing_left && heading <= bearing_right){
+            return "straight";
+        }else{
+            double l = bearing_left+360 - heading;
+            l%=360;
+            double r =heading +360 - bearing_right;
+            r%=360;
+            if( r> l){
+                return "right";
+            }else{
+                return "left";
+            }
+        }
+
+
+    }
+
     //Add a method to find a route between two locations
 
     private void findRoute() {
@@ -298,23 +383,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
     }
-    private double angleFromCoordinate(double lat1, double long1, double lat2,
-                                       double long2) {
-
-        double dLon = (long2 - long1);
-
-        double y = Math.sin(dLon) * Math.cos(lat2);
-        double x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1)
-                * Math.cos(lat2) * Math.cos(dLon);
-
-        double brng = Math.atan2(y, x);
-
-        brng = Math.toDegrees(brng);
-        brng = (brng + 360) % 360;
-        brng = 360 - brng;
-        return brng;
-    }
-        //start tracking location
+       //start tracking location
     private void startLocation() {
         LocationListener locationListener = new LocationListener() {
             @SuppressLint("DefaultLocale")
@@ -323,8 +392,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
                 String corr = String.format("%f,%f", location.getLatitude(), location.getLongitude());
                 TextView tv = findViewById(R.id.textView);
-                if(location.distanceTo(_nextLoc) < 2){
+                if(location.distanceTo(_nextLoc) < 3){
                     showError("location recognized");
+                    mChatService.write(0);
                     nextDirec = true;
                 }
                // tv.setText(String.format("Distance to next stop %f m",location.distanceTo(_nextLoc)));
@@ -334,12 +404,25 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 bearing= (bearing+360 )%360;
 
 
-                tv.setText(String.format("Curr Loc: (%f,%f)\n Next Loc: (%f,%f)\n Distance to next loc: %f m\nBearing: %f\n Heading: %f",
+                tv.setText(String.format("Curr Loc: (%f,%f)\n Next Loc: (%f,%f)\n Distance to next loc: %f m\nBearing: %f\n Heading: %f\nTurn: %s",
                         location.getLatitude(),location.getLongitude(),
                         _nextLoc.getLatitude(),_nextLoc.getLongitude(),
                         location.distanceTo(_nextLoc),
                         bearing,
-                        heading));
+                        heading,
+                        turnDirection(heading,bearing)));
+                switch(turnDirection(heading,bearing)){
+                    case "straight":
+                        mChatService.write(1);
+                        break;
+                    case "left":
+                        mChatService.write(2);
+                        break;
+                    case "right":
+                        mChatService.write(3);
+                        break;
+
+                }
                 Point mapPoint = CoordinateFormatter.fromLatitudeLongitude(corr, mMapView.getSpatialReference());
                 SimpleMarkerSymbol symbol = new SimpleMarkerSymbol(SimpleMarkerSymbol.Style.CIRCLE, Color.BLUE, 12);
                 Graphic graphic = new Graphic(mapPoint, symbol);
@@ -458,7 +541,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     //String.format("Turn: %s when you arrive at %s",dm.getManeuverType(),ltn);
                     dmt = dm.getManeuverType();
                     _nextLoc = parseLoc(ltn);
-                   // System.out.println(_nextLoc.toString());
+
+                    // System.out.println(_nextLoc.toString());
                 }
 
             }
