@@ -131,6 +131,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             }
         }
 
+      //  mChatService.write(String.valueOf(1).getBytes(),3);
+
         // *** ADD ***
         mMapView = findViewById(R.id.mapView);
         //allows for app to access location
@@ -240,7 +242,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         }
                     }
                 }
-                DataView.setText(MessageStatus[message.arg1]);
+//                DataView.setText(MessageStatus[message.arg1]);
                 break;
         }
         return true;
@@ -309,8 +311,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     //decides either to turn left or turn right or go straight
     private String turnDirection(double heading, double bearing){
-        double bearing_left = (bearing - 30);
-        double bearing_right = (bearing + 30);
+        double bearing_left = (bearing - 45);
+        double bearing_right = (bearing + 45);
         if (heading >=bearing_left && heading <= bearing_right){
             return "straight";
         }else{
@@ -389,19 +391,26 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             @SuppressLint("DefaultLocale")
             @Override
             public void onLocationChanged(Location location) {
-
+                double bearing = location.bearingTo(_nextLoc);
+                bearing= (bearing+360 )%360;
                 String corr = String.format("%f,%f", location.getLatitude(), location.getLongitude());
                 TextView tv = findViewById(R.id.textView);
-                if(location.distanceTo(_nextLoc) < 3){
+                if(location.distanceTo(_nextLoc) < 5){
                     showError("location recognized");
-                    mChatService.write(0);
+                    tv.setText(String.format("Curr Loc: (%f,%f)\n Next Loc: (%f,%f)\n Distance to next loc: %f m\nBearing: %f\n Heading: %f\nTurn: %s",
+                            location.getLatitude(),location.getLongitude(),
+                            _nextLoc.getLatitude(),_nextLoc.getLongitude(),
+                            location.distanceTo(_nextLoc),
+                            bearing,
+                            heading,
+                            "stop reached"));
+                    mChatService.write(String.valueOf("0").getBytes(),0);
                     nextDirec = true;
                 }
                // tv.setText(String.format("Distance to next stop %f m",location.distanceTo(_nextLoc)));
                 double opp = _nextLoc.getLongitude() - location.getLongitude();
                 double angle = _nextLoc.getBearing() - location.getBearing();
-                double bearing = location.bearingTo(_nextLoc);
-                bearing= (bearing+360 )%360;
+
 
 
                 tv.setText(String.format("Curr Loc: (%f,%f)\n Next Loc: (%f,%f)\n Distance to next loc: %f m\nBearing: %f\n Heading: %f\nTurn: %s",
@@ -413,16 +422,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         turnDirection(heading,bearing)));
                 switch(turnDirection(heading,bearing)){
                     case "straight":
-                        mChatService.write(1);
+
+                        mChatService.write(String.valueOf("1").getBytes(),0);
                         break;
                     case "left":
-                        mChatService.write(2);
+                        mChatService.write(String.valueOf("2").getBytes(),0);
                         break;
                     case "right":
-                        mChatService.write(3);
+                        mChatService.write(String.valueOf("3").getBytes(),0);
                         break;
-
                 }
+
                 Point mapPoint = CoordinateFormatter.fromLatitudeLongitude(corr, mMapView.getSpatialReference());
                 SimpleMarkerSymbol symbol = new SimpleMarkerSymbol(SimpleMarkerSymbol.Style.CIRCLE, Color.BLUE, 12);
                 Graphic graphic = new Graphic(mapPoint, symbol);
@@ -460,13 +470,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
 
         mMapView.getGraphicsOverlays().add(_personUpdate);
-        _locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2, 0, locationListener);
+        _locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000, 0, locationListener);
 
     }
 
     public void initRoute(android.view.View v) {
         nextDirec=true;
         showError("starting route");
+        mChatService.write(String.valueOf("0").getBytes(),1);
         new Thread(() -> startRoute()).start();
 
 

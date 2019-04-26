@@ -223,9 +223,9 @@ public class BluetoothChatService {
      * Write to the ConnectedThread in an unsynchronized manner
      *
      * @param out The bytes to write
-     * @see ConnectedThread#write(byte[])
+     * @see ConnectedThread#write(byte[], int)
      */
-    public void write(byte[] out) {
+    public void write(byte[] out, int val) {
         // Create temporary object
         ConnectedThread r;
         // Synchronize a copy of the ConnectedThread
@@ -237,7 +237,7 @@ public class BluetoothChatService {
 //       for(int i = 0;i < out.length;i++)
 //           tmpbyte[i] = out[i];
 //        tmpbyte[out.length] = new Integer(-1).byteValue();
-        r.write(out);
+        r.write(out,val);
     }
 
     /**
@@ -502,13 +502,14 @@ public class BluetoothChatService {
          * Write to the connected OutStream.
          *
          * @param buffer The bytes to write
+         * @param val
          */
-        public void write(byte[] buffer) {
+        public void write(byte[] buffer, int val) {
             try {
                 mmOutStream.write(buffer);
                 System.out.println(buffer);
                 // Share the sent message back to the UI Activity
-                Message m = mHandler.obtainMessage(com.example.starterproject.Constants.MESSAGE_WRITE, -1, -1, 1);
+                Message m = mHandler.obtainMessage(val, 1, -1, 1);
                 m.sendToTarget();
             } catch (IOException e) {
                 Log.e(TAG, "Exception during write", e);
