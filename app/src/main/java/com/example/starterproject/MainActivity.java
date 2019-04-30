@@ -23,12 +23,23 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.MotionEvent;
+import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import com.esri.arcgisruntime.UnitSystem;
+import com.esri.arcgisruntime.arcgisservices.ArcGISMapServiceSublayerInfo;
 import com.esri.arcgisruntime.concurrent.ListenableFuture;
+import com.esri.arcgisruntime.data.Feature;
+import com.esri.arcgisruntime.data.FeatureQueryResult;
+import com.esri.arcgisruntime.data.FeatureSubtype;
+import com.esri.arcgisruntime.data.Field;
+import com.esri.arcgisruntime.data.QueryParameters;
+import com.esri.arcgisruntime.data.ServiceFeatureTable;
 import com.esri.arcgisruntime.geometry.CoordinateFormatter;
 import com.esri.arcgisruntime.geometry.GeometryEngine;
 import com.esri.arcgisruntime.geometry.Point;
@@ -38,6 +49,13 @@ import com.esri.arcgisruntime.geometry.Polyline;
 import com.esri.arcgisruntime.geometry.SpatialReference;
 import com.esri.arcgisruntime.geometry.SpatialReferences;
 import com.esri.arcgisruntime.layers.ArcGISMapImageLayer;
+import com.esri.arcgisruntime.layers.ArcGISSublayer;
+import com.esri.arcgisruntime.layers.ArcGISTiledLayer;
+import com.esri.arcgisruntime.layers.ArcGISTiledSublayer;
+import com.esri.arcgisruntime.layers.FeatureLayer;
+import com.esri.arcgisruntime.layers.Layer;
+import com.esri.arcgisruntime.layers.LayerContent;
+import com.esri.arcgisruntime.layers.LegendInfo;
 import com.esri.arcgisruntime.loadable.LoadStatus;
 import com.esri.arcgisruntime.mapping.ArcGISMap;
 import com.esri.arcgisruntime.mapping.Basemap;
@@ -60,16 +78,21 @@ import com.esri.arcgisruntime.tasks.networkanalysis.RouteResult;
 import com.esri.arcgisruntime.tasks.networkanalysis.RouteTask;
 import com.esri.arcgisruntime.tasks.networkanalysis.Stop;
 import com.esri.arcgisruntime.tasks.networkanalysis.TravelMode;
+import com.esri.arcgisruntime.util.ListenableList;
 
 import java.net.MalformedURLException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener,Handler.Callback {
 
-    //map servies
+    //map services
     private MapView mMapView;
     private GraphicsOverlay mGraphicsOverlay;
     private GraphicsOverlay _personUpdate = new GraphicsOverlay();
@@ -78,6 +101,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     //location services
     private LocationManager _locationManager;
     private Location _nextLoc;
+    private Location _prevLoc;
     //route services
     private ArrayList<DirectionManeuver> _directions = new ArrayList<>();
     private boolean nextDirec = false;
@@ -104,12 +128,23 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private BluetoothAdapter mBluetoothAdapter = null;
     private String mConnectedDeviceName = "FireFly-9479";
 
+    //UI
+     Map<String,double[]> buildings = new HashMap<>();
+     Spinner spinner;
+
 
     @SuppressLint("MissingPermission")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        Thread t = new Thread(()->queryFeaturesFromTable());
+        try{
+            t.start();
+            t.join();
+        }catch (Exception e){
+            System.out.print("AWK");
+        }
 
         //set up compass
         _sensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
@@ -134,11 +169,44 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
       //  mChatService.write(String.valueOf(1).getBytes(),3);
 
         // *** ADD ***
+        //drop down menu
+         spinner = findViewById(R.id.buildings_spinner);
+        //map view
         mMapView = findViewById(R.id.mapView);
         //allows for app to access location
         _locationManager = (LocationManager) this.getSystemService(Context.LOCATION_SERVICE);
         _nextLoc = _locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-        //start location
+        _prevLoc = _locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+        //add buildings to spinner
+
+       // queryFeaturesFromTable();
+        try {
+            Thread.sleep(5000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item);
+        if(buildings.isEmpty())
+            System.out.println("OOOPS");
+        //adapter.addAll(buildings.keySet());
+        spinner.setAdapter(adapter);
+        adapter.addAll(buildings.keySet());
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String key = (String) parent.getItemAtPosition(position);
+                double lat = Objects.requireNonNull(buildings.get(key))[0];
+                double lng = Objects.requireNonNull(buildings.get(key))[1];
+                //mGraphicsOverlay.getGraphics().clear();
+               setEndMarker(CoordinateFormatter.fromLatitudeLongitude(String.format("%f,%f",lat,lng),mMapView.getSpatialReference()));
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+
+            }
+        });
+
         startLocation();
         // *** ADD ***
         setupOAuthManager();
@@ -146,19 +214,76 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // *** ADD ***
         createGraphicsOverlay();
         // *** ADD ***
-        setupOAuthManager();
+      //  setupOAuthManager();
+
+    }
+    private void queryFeaturesFromTable() {
+        ServiceFeatureTable table = new ServiceFeatureTable(
+                "http://gis.tamu.edu/arcgis/rest/services/FCOR/BaseMap_20190318/MapServer/2");
+        table.loadAsync();
+
+        table.addDoneLoadingListener(() -> {
+            QueryParameters query = new QueryParameters();
+            query.setWhereClause("1=1");
+           // query.setMaxFeatures(10);
+
+           // query.setReturnGeometry(true);
+            ListenableFuture<FeatureQueryResult> tableQueryResult = table.queryFeaturesAsync(query, ServiceFeatureTable.QueryFeatureFields.LOAD_ALL);
+            tableQueryResult.addDoneListener(() -> {
+                try {
+                    FeatureQueryResult result = tableQueryResult.get();
+                    Iterator<Feature> it = result.iterator();
+
+
+                    while(it.hasNext()){
+                        Feature f = it.next();
+
+                        Map<String,Object> dict = f.getAttributes();
+                        if(dict.get("BldgAbbr") == null){
+                            continue;
+                        }
+                        try{
+                            String key = dict.get("BldgAbbr").toString();
+                            double lat = Double.parseDouble(dict.get("Latitude").toString());
+                            double lng = Double.parseDouble(dict.get("Longitude").toString());
+                            double d[] = new double[2];
+                            d[0]=lat;
+                            d[1] =lng;
+                            buildings.put(key,d);
+
+
+                        }catch (Exception e){
+                            //showError(e.getMessage());
+                        }
+
+                    }
+
+                } catch (ExecutionException | InterruptedException e) {
+                    showError("wrong");
+                }
+            });
+        });
+        if(!buildings.isEmpty())
+            showError("Buildings loaded");
+
 
     }
 
     private void setupMap() {
         ArcGISMap map = null;
         if (mMapView != null) {
-            Basemap.Type basemapType = Basemap.Type.IMAGERY_WITH_LABELS_VECTOR;
+            Basemap.Type basemapType = Basemap.Type.TERRAIN_WITH_LABELS;
             double latitude = 30.6185;
             double longitude = -96.3365;
-            int levelOfDetail = 11;
+            int levelOfDetail = 16;
             map = new ArcGISMap(basemapType, latitude, longitude, levelOfDetail);
-            ArcGISMapImageLayer layer1 = new ArcGISMapImageLayer("http://gis.tamu.edu/arcgis/rest/services/FCOR/ADA_120717/MapServer");
+           // ArcGISMapImageLayer layer1 = new ArcGISMapImageLayer("http://gis.tamu.edu/arcgis/rest/services/FCOR/BaseMap_20190318/MapServer");
+            ArcGISTiledLayer layer1 = new ArcGISTiledLayer("http://gis.tamu.edu/arcgis/rest/services/FCOR/BaseMap_20190318/MapServer");
+
+
+
+            layer1.loadAsync();
+
             map.getBasemap().getBaseLayers().add(layer1);
             mMapView.setMap(map);
         }
@@ -172,7 +297,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 //        ArcGISMapImageLayer traffic = new ArcGISMapImageLayer(getResources().getString(R.string.traffic_service));
 //        map.getOperationalLayers().add(traffic);
 
-        mMapView.setOnTouchListener(new DefaultMapViewOnTouchListener(this, mMapView) {
+        /*mMapView.setOnTouchListener(new DefaultMapViewOnTouchListener(this, mMapView) {
             @Override
             public boolean onSingleTapConfirmed(MotionEvent e) {
                 android.graphics.Point screenPoint = new android.graphics.Point(
@@ -182,7 +307,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 mapClicked(mapPoint);
                 return super.onSingleTapConfirmed(e);
             }
-        });
+        });*/
 
     }
 
@@ -283,16 +408,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     private void setStartMarker(Point location) {
-        mGraphicsOverlay.getGraphics().clear();
+       // mGraphicsOverlay.getGraphics().clear();
         setMapMarker(location, SimpleMarkerSymbol.Style.DIAMOND, Color.rgb(226, 119, 40), Color.BLUE);
         mStart = location;
-        mEnd = null;
+       // mEnd = null;
     }
 
     private void setEndMarker(Point location) {
         setMapMarker(location, SimpleMarkerSymbol.Style.SQUARE, Color.rgb(40, 119, 226), Color.RED);
         mEnd = location;
-        findRoute();
+       // findRoute();
     }
 
     private void mapClicked(Point location) {
@@ -391,20 +516,38 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             @SuppressLint("DefaultLocale")
             @Override
             public void onLocationChanged(Location location) {
-                double bearing = location.bearingTo(_nextLoc);
-                bearing= (bearing+360 )%360;
+                final double  bearing =( _prevLoc.bearingTo(_nextLoc)+360 )%360;
+
                 String corr = String.format("%f,%f", location.getLatitude(), location.getLongitude());
+                setStartMarker(CoordinateFormatter.fromLatitudeLongitude(corr,mMapView.getSpatialReference()));
                 TextView tv = findViewById(R.id.textView);
                 if(location.distanceTo(_nextLoc) < 5){
                     showError("location recognized");
+                    String turn = turnDirection(heading,bearing);
+                    new Thread(()->{
+                        switch(turn){
+                            case "straight":
+
+                                mChatService.write(String.valueOf("1").getBytes(),0);
+                                break;
+                            case "left":
+                                mChatService.write(String.valueOf("2").getBytes(),0);
+                                break;
+                            case "right":
+                                mChatService.write(String.valueOf("3").getBytes(),0);
+                                break;
+                        }
+                    }).start();
                     tv.setText(String.format("Curr Loc: (%f,%f)\n Next Loc: (%f,%f)\n Distance to next loc: %f m\nBearing: %f\n Heading: %f\nTurn: %s",
                             location.getLatitude(),location.getLongitude(),
                             _nextLoc.getLatitude(),_nextLoc.getLongitude(),
                             location.distanceTo(_nextLoc),
                             bearing,
                             heading,
-                            "stop reached"));
-                    mChatService.write(String.valueOf("0").getBytes(),0);
+                            turn));
+
+
+                    //mChatService.write(String.valueOf("0").getBytes(),0);
                     nextDirec = true;
                 }
                // tv.setText(String.format("Distance to next stop %f m",location.distanceTo(_nextLoc)));
@@ -413,25 +556,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
 
-                tv.setText(String.format("Curr Loc: (%f,%f)\n Next Loc: (%f,%f)\n Distance to next loc: %f m\nBearing: %f\n Heading: %f\nTurn: %s",
-                        location.getLatitude(),location.getLongitude(),
-                        _nextLoc.getLatitude(),_nextLoc.getLongitude(),
-                        location.distanceTo(_nextLoc),
-                        bearing,
-                        heading,
-                        turnDirection(heading,bearing)));
-                switch(turnDirection(heading,bearing)){
-                    case "straight":
 
-                        mChatService.write(String.valueOf("1").getBytes(),0);
-                        break;
-                    case "left":
-                        mChatService.write(String.valueOf("2").getBytes(),0);
-                        break;
-                    case "right":
-                        mChatService.write(String.valueOf("3").getBytes(),0);
-                        break;
-                }
 
                 Point mapPoint = CoordinateFormatter.fromLatitudeLongitude(corr, mMapView.getSpatialReference());
                 SimpleMarkerSymbol symbol = new SimpleMarkerSymbol(SimpleMarkerSymbol.Style.CIRCLE, Color.BLUE, 12);
@@ -476,7 +601,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     public void initRoute(android.view.View v) {
         nextDirec=true;
+
+        if(mStart==null || mEnd == null){
+            return;
+        }
         showError("starting route");
+        findRoute();
         mChatService.write(String.valueOf("0").getBytes(),1);
         new Thread(() -> startRoute()).start();
 
@@ -507,6 +637,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     private void startRoute() {
+
         if(_directions.isEmpty()){
             runOnUiThread(()-> {
                 showError("no route");
@@ -591,8 +722,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             SensorManager.getRotationMatrix(_r, null, _lastAccelerometer, _lastMagnetometer);
             SensorManager.getOrientation(_r, _orientation);
             heading = convertRadiantoDegree(_orientation[0]);
-            Log.i("OrientationTestActivity", String.format("Orientation: z: %f, x: %f, y: %f",
-                    convertRadiantoDegree(_orientation[0]), convertRadiantoDegree(_orientation[1]),convertRadiantoDegree(_orientation[2])));
+            /* Log.i("OrientationTestActivity", String.format("Orientation: z: %f, x: %f, y: %f",
+                    convertRadiantoDegree(_orientation[0]), convertRadiantoDegree(_orientation[1]),convertRadiantoDegree(_orientation[2])));*/
         }
     }
 

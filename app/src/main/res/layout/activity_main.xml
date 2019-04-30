@@ -20,6 +20,7 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
+
         <TextView
             android:id="@+id/textView"
             android:layout_width="wrap_content"
@@ -31,12 +32,17 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:onClick="initRoute"
-            android:text="Start Route" />
+            android:text="Start Route"/>
 
+        <Spinner
+            android:id="@+id/buildings_spinner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
         <com.esri.arcgisruntime.mapping.view.MapView
             android:id="@+id/mapView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"></com.esri.arcgisruntime.mapping.view.MapView>
+
     </LinearLayout>
 
 </android.support.constraint.ConstraintLayout>
