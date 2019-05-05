@@ -7,7 +7,6 @@ import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
-import android.hardware.GeomagneticField;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -15,14 +14,13 @@ import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.os.ParcelUuid;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
-import android.os.Bundle;
 import android.util.Log;
-import android.view.MotionEvent;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
@@ -32,41 +30,24 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.esri.arcgisruntime.UnitSystem;
-import com.esri.arcgisruntime.arcgisservices.ArcGISMapServiceSublayerInfo;
 import com.esri.arcgisruntime.concurrent.ListenableFuture;
 import com.esri.arcgisruntime.data.Feature;
 import com.esri.arcgisruntime.data.FeatureQueryResult;
-import com.esri.arcgisruntime.data.FeatureSubtype;
-import com.esri.arcgisruntime.data.Field;
 import com.esri.arcgisruntime.data.QueryParameters;
 import com.esri.arcgisruntime.data.ServiceFeatureTable;
 import com.esri.arcgisruntime.geometry.CoordinateFormatter;
-import com.esri.arcgisruntime.geometry.GeometryEngine;
 import com.esri.arcgisruntime.geometry.Point;
-import com.esri.arcgisruntime.geometry.PointCollection;
-import com.esri.arcgisruntime.geometry.Polygon;
 import com.esri.arcgisruntime.geometry.Polyline;
-import com.esri.arcgisruntime.geometry.SpatialReference;
-import com.esri.arcgisruntime.geometry.SpatialReferences;
-import com.esri.arcgisruntime.layers.ArcGISMapImageLayer;
-import com.esri.arcgisruntime.layers.ArcGISSublayer;
 import com.esri.arcgisruntime.layers.ArcGISTiledLayer;
-import com.esri.arcgisruntime.layers.ArcGISTiledSublayer;
-import com.esri.arcgisruntime.layers.FeatureLayer;
-import com.esri.arcgisruntime.layers.Layer;
-import com.esri.arcgisruntime.layers.LayerContent;
-import com.esri.arcgisruntime.layers.LegendInfo;
 import com.esri.arcgisruntime.loadable.LoadStatus;
 import com.esri.arcgisruntime.mapping.ArcGISMap;
 import com.esri.arcgisruntime.mapping.Basemap;
-import com.esri.arcgisruntime.mapping.view.DefaultMapViewOnTouchListener;
 import com.esri.arcgisruntime.mapping.view.Graphic;
 import com.esri.arcgisruntime.mapping.view.GraphicsOverlay;
 import com.esri.arcgisruntime.mapping.view.MapView;
 import com.esri.arcgisruntime.security.AuthenticationManager;
 import com.esri.arcgisruntime.security.DefaultAuthenticationChallengeHandler;
 import com.esri.arcgisruntime.security.OAuthConfiguration;
-import com.esri.arcgisruntime.symbology.SimpleFillSymbol;
 import com.esri.arcgisruntime.symbology.SimpleLineSymbol;
 import com.esri.arcgisruntime.symbology.SimpleMarkerSymbol;
 import com.esri.arcgisruntime.tasks.networkanalysis.DirectionEvent;
@@ -77,11 +58,10 @@ import com.esri.arcgisruntime.tasks.networkanalysis.RouteParameters;
 import com.esri.arcgisruntime.tasks.networkanalysis.RouteResult;
 import com.esri.arcgisruntime.tasks.networkanalysis.RouteTask;
 import com.esri.arcgisruntime.tasks.networkanalysis.Stop;
-import com.esri.arcgisruntime.tasks.networkanalysis.TravelMode;
-import com.esri.arcgisruntime.util.ListenableList;
 
 import java.net.MalformedURLException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -90,7 +70,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
-public class MainActivity extends AppCompatActivity implements SensorEventListener,Handler.Callback {
+public class MainActivity extends AppCompatActivity implements SensorEventListener, Handler.Callback {
 
     //map services
     private MapView mMapView;
@@ -98,6 +78,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private GraphicsOverlay _personUpdate = new GraphicsOverlay();
     private Point mStart;
     private Point mEnd;
+    private boolean startPoint = true;
+    String turn = "depart";
     //location services
     private LocationManager _locationManager;
     private Location _nextLoc;
@@ -129,8 +111,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private String mConnectedDeviceName = "FireFly-9479";
 
     //UI
-     Map<String,double[]> buildings = new HashMap<>();
-     Spinner spinner;
+    Map<String, double[]> buildings = new HashMap<>();
+    Spinner spinner;
 
 
     @SuppressLint("MissingPermission")
@@ -138,39 +120,39 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        Thread t = new Thread(()->queryFeaturesFromTable());
-        try{
+        Thread t = new Thread(() -> queryFeaturesFromTable());
+        try {
             t.start();
             t.join();
-        }catch (Exception e){
+        } catch (Exception e) {
             System.out.print("AWK");
         }
 
         //set up compass
-        _sensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
+        _sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         _accelerometer = _sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         _magnetometer = _sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
         //set bluetooth up
         mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
 
-        mhandler = new Handler( this);
+        mhandler = new Handler(this);
 
-        mChatService = new BluetoothChatService(this,mhandler);
+        mChatService = new BluetoothChatService(this, mhandler);
 
-        for(BluetoothDevice bldevice : pairedDevices){
-            if(bldevice.getName().contains(mConnectedDeviceName)){
+        for (BluetoothDevice bldevice : pairedDevices) {
+            if (bldevice.getName().contains(mConnectedDeviceName)) {
                 ParcelUuid[] tmp = bldevice.getUuids();
                 String value = tmp[0].toString();
-                mChatService.connect(bldevice,true,value);
+                mChatService.connect(bldevice, true, value);
             }
         }
 
-      //  mChatService.write(String.valueOf(1).getBytes(),3);
+        //  mChatService.write(String.valueOf(1).getBytes(),3);
 
         // *** ADD ***
         //drop down menu
-         spinner = findViewById(R.id.buildings_spinner);
+        spinner = findViewById(R.id.buildings_spinner);
         //map view
         mMapView = findViewById(R.id.mapView);
         //allows for app to access location
@@ -179,18 +161,20 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         _prevLoc = _locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
         //add buildings to spinner
 
-       // queryFeaturesFromTable();
+        // queryFeaturesFromTable();
         try {
             Thread.sleep(5000);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item);
-        if(buildings.isEmpty())
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item);
+        if (buildings.isEmpty())
             System.out.println("OOOPS");
         //adapter.addAll(buildings.keySet());
         spinner.setAdapter(adapter);
-        adapter.addAll(buildings.keySet());
+        ArrayList<String> tmplist = new ArrayList<String>(buildings.keySet());
+        Collections.sort(tmplist);
+        adapter.addAll(tmplist);
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -198,7 +182,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 double lat = Objects.requireNonNull(buildings.get(key))[0];
                 double lng = Objects.requireNonNull(buildings.get(key))[1];
                 //mGraphicsOverlay.getGraphics().clear();
-               setEndMarker(CoordinateFormatter.fromLatitudeLongitude(String.format("%f,%f",lat,lng),mMapView.getSpatialReference()));
+                mEnd = CoordinateFormatter.fromLatitudeLongitude(String.format("%f,%f", lat, lng), mMapView.getSpatialReference());
             }
 
             @Override
@@ -214,9 +198,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // *** ADD ***
         createGraphicsOverlay();
         // *** ADD ***
-      //  setupOAuthManager();
+        //  setupOAuthManager();
 
     }
+
     private void queryFeaturesFromTable() {
         ServiceFeatureTable table = new ServiceFeatureTable(
                 "http://gis.tamu.edu/arcgis/rest/services/FCOR/BaseMap_20190318/MapServer/2");
@@ -225,9 +210,9 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         table.addDoneLoadingListener(() -> {
             QueryParameters query = new QueryParameters();
             query.setWhereClause("1=1");
-           // query.setMaxFeatures(10);
+            // query.setMaxFeatures(10);
 
-           // query.setReturnGeometry(true);
+            // query.setReturnGeometry(true);
             ListenableFuture<FeatureQueryResult> tableQueryResult = table.queryFeaturesAsync(query, ServiceFeatureTable.QueryFeatureFields.LOAD_ALL);
             tableQueryResult.addDoneListener(() -> {
                 try {
@@ -235,24 +220,24 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     Iterator<Feature> it = result.iterator();
 
 
-                    while(it.hasNext()){
+                    while (it.hasNext()) {
                         Feature f = it.next();
 
-                        Map<String,Object> dict = f.getAttributes();
-                        if(dict.get("BldgAbbr") == null){
+                        Map<String, Object> dict = f.getAttributes();
+                        if (dict.get("BldgAbbr") == null) {
                             continue;
                         }
-                        try{
+                        try {
                             String key = dict.get("BldgAbbr").toString();
                             double lat = Double.parseDouble(dict.get("Latitude").toString());
                             double lng = Double.parseDouble(dict.get("Longitude").toString());
                             double d[] = new double[2];
-                            d[0]=lat;
-                            d[1] =lng;
-                            buildings.put(key,d);
+                            d[0] = lat;
+                            d[1] = lng;
+                            buildings.put(key, d);
 
 
-                        }catch (Exception e){
+                        } catch (Exception e) {
                             //showError(e.getMessage());
                         }
 
@@ -263,7 +248,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 }
             });
         });
-        if(!buildings.isEmpty())
+        if (!buildings.isEmpty())
             showError("Buildings loaded");
 
 
@@ -277,9 +262,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             double longitude = -96.3365;
             int levelOfDetail = 16;
             map = new ArcGISMap(basemapType, latitude, longitude, levelOfDetail);
-           // ArcGISMapImageLayer layer1 = new ArcGISMapImageLayer("http://gis.tamu.edu/arcgis/rest/services/FCOR/BaseMap_20190318/MapServer");
+            // ArcGISMapImageLayer layer1 = new ArcGISMapImageLayer("http://gis.tamu.edu/arcgis/rest/services/FCOR/BaseMap_20190318/MapServer");
             ArcGISTiledLayer layer1 = new ArcGISTiledLayer("http://gis.tamu.edu/arcgis/rest/services/FCOR/BaseMap_20190318/MapServer");
-
 
 
             layer1.loadAsync();
@@ -328,7 +312,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         _lastAccelerometerSet = false;
         _lastMagnetometerSet = false;
         //_sensorManager.registerListener(this, _accelerometer, SensorManager.SENSOR_DELAY_NORMAL);
-       // _sensorManager.registerListener(this, _magnetometer, SensorManager.SENSOR_DELAY_NORMAL);
+        // _sensorManager.registerListener(this, _magnetometer, SensorManager.SENSOR_DELAY_NORMAL);
         if (mChatService != null) {
             // Only if the state is STATE_NONE, do we know that we haven't started already
             if (mChatService.getState() == BluetoothChatService.STATE_NONE) {
@@ -350,20 +334,20 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
         super.onDestroy();
     }
+
     @Override
     public boolean handleMessage(Message message) {
-        String[] MessageStatus = new String[]{"STATE_NONE","STATE_LISTEN","STATE_CONNECTING","STATE_CONNECTED"};
+        String[] MessageStatus = new String[]{"STATE_NONE", "STATE_LISTEN", "STATE_CONNECTING", "STATE_CONNECTED"};
         switch (message.what) {
             case Constants.MESSAGE_STATE_CHANGE:
-                if(MessageStatus[message.arg1] == "STATE_LISTEN")
-                {
+                if (MessageStatus[message.arg1] == "STATE_LISTEN") {
                     mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
                     Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
-                    for(BluetoothDevice bldevice : pairedDevices){
-                        if(bldevice.getName().contains(mConnectedDeviceName)){
+                    for (BluetoothDevice bldevice : pairedDevices) {
+                        if (bldevice.getName().contains(mConnectedDeviceName)) {
                             ParcelUuid[] tmp = bldevice.getUuids();
                             String value = tmp[0].toString();
-                            mChatService.connect(bldevice,true,value);
+                            mChatService.connect(bldevice, true, value);
                         }
                     }
                 }
@@ -408,16 +392,16 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     private void setStartMarker(Point location) {
-       // mGraphicsOverlay.getGraphics().clear();
+        // mGraphicsOverlay.getGraphics().clear();
         setMapMarker(location, SimpleMarkerSymbol.Style.DIAMOND, Color.rgb(226, 119, 40), Color.BLUE);
         mStart = location;
-       // mEnd = null;
+        // mEnd = null;
     }
 
     private void setEndMarker(Point location) {
         setMapMarker(location, SimpleMarkerSymbol.Style.SQUARE, Color.rgb(40, 119, 226), Color.RED);
         mEnd = location;
-       // findRoute();
+        // findRoute();
     }
 
     private void mapClicked(Point location) {
@@ -428,26 +412,26 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             // End is not set, set it to the tapped location then find the route
             setEndMarker(location);
             newRoute = false;
-        } else if(newRoute) {
+        } else if (newRoute) {
             // Both locations are set; re-set the start to the tapped location
             setStartMarker(location);
         }
     }
 
     //decides either to turn left or turn right or go straight
-    private String turnDirection(double heading, double bearing){
+    private String turnDirection(double heading, double bearing) {
         double bearing_left = (bearing - 45);
         double bearing_right = (bearing + 45);
-        if (heading >=bearing_left && heading <= bearing_right){
+        if (heading >= bearing_left && heading <= bearing_right) {
             return "straight";
-        }else{
-            double l = bearing_left+360 - heading;
-            l%=360;
-            double r =heading +360 - bearing_right;
-            r%=360;
-            if( r> l){
+        } else {
+            double l = bearing_left + 360 - heading;
+            l %= 360;
+            double r = heading + 360 - bearing_right;
+            r %= 360;
+            if (r > l) {
                 return "right";
-            }else{
+            } else {
                 return "left";
             }
         }
@@ -510,22 +494,24 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
     }
-       //start tracking location
+
+    //start tracking location
     private void startLocation() {
         LocationListener locationListener = new LocationListener() {
             @SuppressLint("DefaultLocale")
             @Override
             public void onLocationChanged(Location location) {
-                final double  bearing =( _prevLoc.bearingTo(_nextLoc)+360 )%360;
-
+                final double bearing = (_prevLoc.bearingTo(_nextLoc) + 360) % 360;
                 String corr = String.format("%f,%f", location.getLatitude(), location.getLongitude());
-                setStartMarker(CoordinateFormatter.fromLatitudeLongitude(corr,mMapView.getSpatialReference()));
+
                 TextView tv = findViewById(R.id.textView);
-                if(location.distanceTo(_nextLoc) < 5){
+
+                if (location.distanceTo(_nextLoc) < 5) {
                     showError("location recognized");
-                    String turn = turnDirection(heading,bearing);
-                    new Thread(()->{
-                        switch(turn){
+                    turn = turnDirection(heading, bearing);
+                    String finalTurn = turn;
+                    /*new Thread(()->{
+                        switch(finalTurn){
                             case "straight":
 
                                 mChatService.write(String.valueOf("1").getBytes(),0);
@@ -537,25 +523,35 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                                 mChatService.write(String.valueOf("3").getBytes(),0);
                                 break;
                         }
-                    }).start();
-                    tv.setText(String.format("Curr Loc: (%f,%f)\n Next Loc: (%f,%f)\n Distance to next loc: %f m\nBearing: %f\n Heading: %f\nTurn: %s",
-                            location.getLatitude(),location.getLongitude(),
-                            _nextLoc.getLatitude(),_nextLoc.getLongitude(),
-                            location.distanceTo(_nextLoc),
-                            bearing,
-                            heading,
-                            turn));
+                    }).start();*/
 
 
                     //mChatService.write(String.valueOf("0").getBytes(),0);
                     nextDirec = true;
                 }
-               // tv.setText(String.format("Distance to next stop %f m",location.distanceTo(_nextLoc)));
+                turn = turnDirection(heading, bearing);
+                switch (turn) {
+                    case "straight":
+
+                        mChatService.write(String.valueOf("1").getBytes(), 0);
+                        break;
+                    case "left":
+                        mChatService.write(String.valueOf("2").getBytes(), 0);
+                        break;
+                    case "right":
+                        mChatService.write(String.valueOf("3").getBytes(), 0);
+                        break;
+                }
+                tv.setText(String.format("Curr Loc: (%f,%f)\n Next Loc: (%f,%f)\n Distance to next loc: %f m\nBearing: %f\n Heading: %f\nTurn: %s",
+                        location.getLatitude(), location.getLongitude(),
+                        _nextLoc.getLatitude(), _nextLoc.getLongitude(),
+                        location.distanceTo(_nextLoc),
+                        bearing,
+                        heading,
+                        turn));
+                // tv.setText(String.format("Distance to next stop %f m",location.distanceTo(_nextLoc)));
                 double opp = _nextLoc.getLongitude() - location.getLongitude();
                 double angle = _nextLoc.getBearing() - location.getBearing();
-
-
-
 
 
                 Point mapPoint = CoordinateFormatter.fromLatitudeLongitude(corr, mMapView.getSpatialReference());
@@ -595,36 +591,41 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
 
         mMapView.getGraphicsOverlays().add(_personUpdate);
-        _locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3000, 0, locationListener);
+        _locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 00, 0, locationListener);
 
     }
 
     public void initRoute(android.view.View v) {
-        nextDirec=true;
+        nextDirec = true;
+        String corr = String.format("%f,%f", _prevLoc.getLatitude(), _prevLoc.getLongitude());
 
-        if(mStart==null || mEnd == null){
+        mStart = CoordinateFormatter.fromLatitudeLongitude(corr, mMapView.getSpatialReference());
+        setStartMarker(mStart);
+        setEndMarker(mEnd);
+        if (mStart == null || mEnd == null) {
             return;
         }
         showError("starting route");
         findRoute();
-        mChatService.write(String.valueOf("0").getBytes(),1);
+        mChatService.write(String.valueOf("0").getBytes(), 1);
         new Thread(() -> startRoute()).start();
 
 
     }
+
     @SuppressLint("MissingPermission")
-    private Location parseLoc(String loc){
-        String [] tmp = loc.split(" ");
+    private Location parseLoc(String loc) {
+        String[] tmp = loc.split(" ");
         double lat, lng;
-        if(tmp[0].substring(tmp[0].length()-1).equals("N")){
-             lat = Double.parseDouble(tmp[0].substring(0,tmp[0].length()-1));
-        }else{
-            lat = -1*Double.parseDouble(tmp[0].substring(0,tmp[0].length()-1));
+        if (tmp[0].substring(tmp[0].length() - 1).equals("N")) {
+            lat = Double.parseDouble(tmp[0].substring(0, tmp[0].length() - 1));
+        } else {
+            lat = -1 * Double.parseDouble(tmp[0].substring(0, tmp[0].length() - 1));
         }
-        if(tmp[1].substring(tmp[1].length()-1).equals("E")){
-            lng = Double.parseDouble(tmp[1].substring(0,tmp[1].length()-1));
-        }else{
-            lng = -1*Double.parseDouble(tmp[1].substring(0,tmp[1].length()-1));
+        if (tmp[1].substring(tmp[1].length() - 1).equals("E")) {
+            lng = Double.parseDouble(tmp[1].substring(0, tmp[1].length() - 1));
+        } else {
+            lng = -1 * Double.parseDouble(tmp[1].substring(0, tmp[1].length() - 1));
 
         }
 
@@ -638,13 +639,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     private void startRoute() {
 
-        if(_directions.isEmpty()){
-            runOnUiThread(()-> {
+        if (_directions.isEmpty()) {
+            runOnUiThread(() -> {
                 showError("no route");
             });
             return;
         }
-        String start =  CoordinateFormatter.toLatitudeLongitude(mStart, CoordinateFormatter.LatitudeLongitudeFormat.DECIMAL_DEGREES, 6);
+        /*String start =  CoordinateFormatter.toLatitudeLongitude(mStart, CoordinateFormatter.LatitudeLongitudeFormat.DECIMAL_DEGREES, 6);
         _nextLoc = parseLoc(start);
         runOnUiThread(() -> {
             //showError(de.getEventText());
@@ -653,7 +654,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             GraphicsOverlay go = new GraphicsOverlay();
             mMapView.getGraphicsOverlays().add(go);
             go.getGraphics().add(graphic);
-        });
+        });*/
 
         while (!_directions.isEmpty()) {
 
@@ -664,7 +665,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                 for (DirectionEvent de : dm.getDirectionEvents()) {
                     String ltn = CoordinateFormatter.toLatitudeLongitude(de.getGeometry(), CoordinateFormatter.LatitudeLongitudeFormat.DECIMAL_DEGREES, 6);
 
-                    if(_nextLoc == parseLoc(ltn)){
+                    if (_nextLoc == parseLoc(ltn)) {
                         showError("same place");
                         break;
                     }
@@ -675,11 +676,11 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                         GraphicsOverlay go = new GraphicsOverlay();
                         mMapView.getGraphicsOverlays().add(go);
                         go.getGraphics().add(graphic);
-                       // System.out.println(""+(_nextLoc.bearingTo(parseLoc(ltn))+360)%360);
+                        // System.out.println(""+(_nextLoc.bearingTo(parseLoc(ltn))+360)%360);
 
                     });
 
-                   // String ltn = CoordinateFormatter.toLatitudeLongitude(de.getGeometry(), CoordinateFormatter.LatitudeLongitudeFormat.DECIMAL_DEGREES, 6);
+                    // String ltn = CoordinateFormatter.toLatitudeLongitude(de.getGeometry(), CoordinateFormatter.LatitudeLongitudeFormat.DECIMAL_DEGREES, 6);
                     //String.format("Turn: %s when you arrive at %s",dm.getManeuverType(),ltn);
                     dmt = dm.getManeuverType();
                     _nextLoc = parseLoc(ltn);
@@ -691,7 +692,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
         }
-        String end =  CoordinateFormatter.toLatitudeLongitude(mEnd, CoordinateFormatter.LatitudeLongitudeFormat.DECIMAL_DEGREES, 6);
+        /*String end =  CoordinateFormatter.toLatitudeLongitude(mEnd, CoordinateFormatter.LatitudeLongitudeFormat.DECIMAL_DEGREES, 6);
         _nextLoc = parseLoc(end);
         runOnUiThread(() -> {
             //showError(de.getEventText());
@@ -700,12 +701,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             GraphicsOverlay go = new GraphicsOverlay();
             mMapView.getGraphicsOverlays().add(go);
             go.getGraphics().add(graphic);
-        });
+        });*/
         newRoute = true;
     }
-    private double convertRadiantoDegree(double rad){
+
+    private double convertRadiantoDegree(double rad) {
         double tmp = Math.toDegrees(rad);
-        tmp = (tmp+360) %360;
+        tmp = (tmp + 360) % 360;
         return tmp;
     }
 
